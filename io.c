@@ -1,5 +1,52 @@
 // GPIO
 
+
+
+// Input Test --------------------
+
+// Neuer Puffer für die UART-Eingabe
+#define INPUT_BUFFER_SIZE 256
+char input_buffer[INPUT_BUFFER_SIZE];
+unsigned int input_buffer_pos = 0;
+
+// Funktionsprototypen für neue Funktionen
+void process_command(char *buffer);
+int strcmp_simple(const char *s1, const char *s2);
+void uart_writeText(char *buffer); //  <-- HIER DEN PROTOTYPEN EINFÜGEN
+
+/**
+ * Vergleicht zwei Strings.
+ * @return 0 wenn die Strings identisch sind, ansonsten ungleich 0.
+ */
+int strcmp_simple(const char *s1, const char *s2) {
+    while (*s1 && (*s1 == *s2)) {
+        s1++;
+        s2++;
+    }
+    return *(const unsigned char*)s1 - *(const unsigned char*)s2;
+}
+
+/**
+ * Verarbeitet den eingegebenen Befehl, nachdem Enter gedrückt wurde.
+ */
+void process_command(char *buffer) {
+    if (strcmp_simple(buffer, "help") == 0) {
+        uart_writeText("Dies ist eine Hilfe-Nachricht.\n");
+        uart_writeText("Verfuegbare Befehle:\n");
+        uart_writeText(" - help: Zeigt diese Nachricht an\n");
+    } else {
+        uart_writeText("Unbekannter Befehl: '");
+        uart_writeText(buffer);
+        uart_writeText("'\n");
+    }
+}
+
+// Test ende ----------------------
+
+
+
+
+
 enum {
     PERIPHERAL_BASE = 0xFE000000,
     GPFSEL0         = PERIPHERAL_BASE + 0x200000,
@@ -10,11 +57,15 @@ enum {
 
 enum {
     GPIO_MAX_PIN       = 53,
+    GPIO_FUNCTION_OUT  = 1,
     GPIO_FUNCTION_ALT5 = 2,
+    GPIO_FUNCTION_ALT3 = 7
 };
 
 enum {
     Pull_None = 0,
+    Pull_Down = 2,
+    Pull_Up = 1
 };
 
 void mmio_write(long reg, unsigned int val) { *(volatile unsigned int *)reg = val; }
@@ -43,15 +94,34 @@ unsigned int gpio_clear   (unsigned int pin_number, unsigned int value) { return
 unsigned int gpio_pull    (unsigned int pin_number, unsigned int value) { return gpio_call(pin_number, value, GPPUPPDN0, 2, GPIO_MAX_PIN); }
 unsigned int gpio_function(unsigned int pin_number, unsigned int value) { return gpio_call(pin_number, value, GPFSEL0, 3, GPIO_MAX_PIN); }
 
+void gpio_useAsAlt3(unsigned int pin_number) {
+    gpio_pull(pin_number, Pull_None);
+    gpio_function(pin_number, GPIO_FUNCTION_ALT3);
+}
+
 void gpio_useAsAlt5(unsigned int pin_number) {
     gpio_pull(pin_number, Pull_None);
     gpio_function(pin_number, GPIO_FUNCTION_ALT5);
+}
+
+void gpio_initOutputPinWithPullNone(unsigned int pin_number) {
+    gpio_pull(pin_number, Pull_None);
+    gpio_function(pin_number, GPIO_FUNCTION_OUT);
+}
+
+void gpio_setPinOutputBool(unsigned int pin_number, unsigned int onOrOff) {
+    if (onOrOff) {
+        gpio_set(pin_number, 1);
+    } else {
+        gpio_clear(pin_number, 1);
+    }
 }
 
 // UART
 
 enum {
     AUX_BASE        = PERIPHERAL_BASE + 0x215000,
+    AUX_IRQ         = AUX_BASE,
     AUX_ENABLES     = AUX_BASE + 4,
     AUX_MU_IO_REG   = AUX_BASE + 64,
     AUX_MU_IER_REG  = AUX_BASE + 68,
@@ -59,13 +129,20 @@ enum {
     AUX_MU_LCR_REG  = AUX_BASE + 76,
     AUX_MU_MCR_REG  = AUX_BASE + 80,
     AUX_MU_LSR_REG  = AUX_BASE + 84,
+    AUX_MU_MSR_REG  = AUX_BASE + 88,
+    AUX_MU_SCRATCH  = AUX_BASE + 92,
     AUX_MU_CNTL_REG = AUX_BASE + 96,
+    AUX_MU_STAT_REG = AUX_BASE + 100,
     AUX_MU_BAUD_REG = AUX_BASE + 104,
     AUX_UART_CLOCK  = 500000000,
     UART_MAX_QUEUE  = 16 * 1024
 };
 
 #define AUX_MU_BAUD(baud) ((AUX_UART_CLOCK/(baud*8))-1)
+
+unsigned char uart_output_queue[UART_MAX_QUEUE];
+unsigned int uart_output_queue_write = 0;
+unsigned int uart_output_queue_read = 0;
 
 void uart_init() {
     mmio_write(AUX_ENABLES, 1); //enable UART1
@@ -81,17 +158,91 @@ void uart_init() {
     mmio_write(AUX_MU_CNTL_REG, 3); //enable RX/TX
 }
 
+unsigned int uart_isOutputQueueEmpty() {
+    return uart_output_queue_read == uart_output_queue_write;
+}
+
+unsigned int uart_isReadByteReady()  { return mmio_read(AUX_MU_LSR_REG) & 0x01; }
 unsigned int uart_isWriteByteReady() { return mmio_read(AUX_MU_LSR_REG) & 0x20; }
+
+unsigned char uart_readByte() {
+    while (!uart_isReadByteReady());
+    return (unsigned char)mmio_read(AUX_MU_IO_REG);
+}
 
 void uart_writeByteBlockingActual(unsigned char ch) {
     while (!uart_isWriteByteReady()); 
     mmio_write(AUX_MU_IO_REG, (unsigned int)ch);
 }
 
-void uart_writeText(char *buffer) {
-    while (*buffer) {
-       if (*buffer == '\n') uart_writeByteBlockingActual('\r');
-       uart_writeByteBlockingActual(*buffer++);
+void uart_loadOutputFifo() {
+    while (!uart_isOutputQueueEmpty() && uart_isWriteByteReady()) {
+        uart_writeByteBlockingActual(uart_output_queue[uart_output_queue_read]);
+        uart_output_queue_read = (uart_output_queue_read + 1) & (UART_MAX_QUEUE - 1); // Don't overrun
     }
 }
 
+void uart_writeByteBlocking(unsigned char ch) {
+    unsigned int next = (uart_output_queue_write + 1) & (UART_MAX_QUEUE - 1); // Don't overrun
+
+    while (next == uart_output_queue_read) uart_loadOutputFifo();
+
+    uart_output_queue[uart_output_queue_write] = ch;
+    uart_output_queue_write = next;
+}
+
+void uart_writeText(char *buffer) {
+    while (*buffer) {
+       if (*buffer == '\n') uart_writeByteBlocking('\r');
+       uart_writeByteBlocking(*buffer++);
+    }
+}
+
+void uart_drainOutputQueue() {
+    while (!uart_isOutputQueueEmpty()) uart_loadOutputFifo();
+}
+
+void uart_update() {
+    // Weiterhin die Sende-Queue abarbeiten
+    uart_loadOutputFifo();
+
+    // Pruefen, ob ein Zeichen empfangen wurde
+    if (uart_isReadByteReady()) {
+        unsigned char ch = uart_readByte();
+
+        // Fall 1: Enter wurde gedrückt (Carriage Return)
+        if (ch == '\r') {
+            uart_writeText("\n"); // Zeilenvorschub an den Terminal senden
+            
+            // Puffer mit Null-Terminator abschließen, um einen gültigen String zu erzeugen
+            input_buffer[input_buffer_pos] = '\0';
+            
+            // Befehl verarbeiten, falls der Puffer nicht leer ist
+            if (input_buffer_pos > 0) {
+                process_command(input_buffer);
+            }
+            
+            // Puffer für die nächste Eingabe zurücksetzen
+            input_buffer_pos = 0;
+            
+        // Fall 2: Backspace/Löschen wurde gedrückt
+        } else if (ch == 0x08 || ch == 0x7F) {
+            if (input_buffer_pos > 0) {
+                input_buffer_pos--;
+                // Visuelles Feedback an den Terminal: Cursor zurück, Leerzeichen, Cursor zurück
+                uart_writeText("\b \b");
+            }
+
+        // Fall 3: Ein normales, druckbares Zeichen wurde empfangen
+        } else {
+            // Sicherstellen, dass der Puffer nicht überläuft
+            if (input_buffer_pos < (INPUT_BUFFER_SIZE - 1)) {
+                input_buffer[input_buffer_pos] = ch;
+                input_buffer_pos++;
+                
+                // Echo: Das eingegebene Zeichen an den Terminal zurücksenden, damit der User es sieht
+                uart_writeByteBlocking(ch);
+            }
+        }
+    }
+}

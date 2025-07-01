@@ -36,7 +36,7 @@ void process_command(char *buffer) {
         uart_writeText(" - help: shows this message\n");
         uart_writeText(" - version: shows the current version\n");
     }else if(strcmp_simple(buffer, "version") == 0){
-        uart_writeText("You are running version: v0.1.0-alpha")
+        uart_writeText("You are running version: v0.1.0-alpha\n");
 
     } else {
         uart_writeText("unkown command: '");

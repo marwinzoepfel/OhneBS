@@ -47,6 +47,9 @@ int get_variable(const char* name, bool* success);
 // Command interpreter
 void process_command(char *buffer);
 
+// Prototypen für den Expression Parser
+int evaluate_term(const char* term, bool* success);
+int evaluate_expression(const char* expr, bool* success);
 
 // ######################################################
 // ## IMPLEMENTATION OF HELPER FUNCTIONS
@@ -162,6 +165,69 @@ void strncpy_simple(char *dest, const char *src, unsigned int n) {
     *dest = '\0';
 }
 
+/**
+ * Wertet einen einzelnen Term aus. Ein Term kann entweder eine direkte Zahl
+ * oder ein Variablenname sein.
+ */
+int evaluate_term(const char* term, bool* success) {
+    // Entferne führende Leerzeichen
+    while (*term == ' ') term++;
+
+    // Prüfen, ob der Term eine Zahl ist (beginnt mit Ziffer oder '-')
+    if ((*term >= '0' && *term <= '9') || *term == '-') {
+        *success = true;
+        return simple_atoi(term);
+    } else {
+        // Andernfalls als Variablenname behandeln
+        return get_variable(term, success);
+    }
+}
+
+/**
+ * Wertet einen einfachen Ausdruck der Form "term1 + term2" aus.
+ */
+int evaluate_expression(const char* expr, bool* success) {
+    char lhs_str[MAX_VAR_NAME_LENGTH];
+    char rhs_str[MAX_VAR_NAME_LENGTH];
+
+    // Finde den '+' Operator
+    const char* plus_operator = NULL;
+    for (const char* p = expr; *p != '\0'; p++) {
+        if (*p == '+') {
+            plus_operator = p;
+            break;
+        }
+    }
+
+    // Fall 1: Kein '+' gefunden, also nur einen einzelnen Term auswerten
+    if (plus_operator == NULL) {
+        return evaluate_term(expr, success);
+    }
+
+    // Fall 2: '+' wurde gefunden
+    // Kopiere den linken Teil (LHS)
+    int lhs_len = plus_operator - expr;
+    strncpy_simple(lhs_str, expr, lhs_len + 1);
+
+    // Kopiere den rechten Teil (RHS)
+    strncpy_simple(rhs_str, plus_operator + 1, MAX_VAR_NAME_LENGTH);
+
+    // Werte beide Teile aus
+    bool lhs_success, rhs_success;
+    int lhs_value = evaluate_term(lhs_str, &lhs_success);
+    int rhs_value = evaluate_term(rhs_str, &rhs_success);
+
+    if (lhs_success && rhs_success) {
+        *success = true;
+        return lhs_value + rhs_value;
+    }
+
+    // Wenn einer der Terme nicht ausgewertet werden konnte
+    *success = false;
+    return 0;
+}
+
+
 // ######################################################
 // ## IMPLEMENTATION OF VARIABLE MANAGEMENT
 // ######################################################
@@ -221,29 +287,29 @@ int get_variable(const char* name, bool* success) {
 /**
  * Processes the user's command.
  */
+/**
+ * Verarbeitet den eingegebenen Befehl.
+ */
 void process_command(char *buffer) {
     char command[10];
     char var_name[MAX_VAR_NAME_LENGTH];
-    char number_buffer[12]; 
+    char number_buffer[12];
 
-    // Step 1: Extract the first word (the command)
+    // Schritt 1: Extrahiere das erste Wort (den Befehl)
     int i = 0;
     while(buffer[i] != ' ' && buffer[i] != '\0') {
-        if (i < 9) {
-            command[i] = buffer[i];
-        }
+        if (i < 9) { command[i] = buffer[i]; }
         i++;
     }
     command[i] = '\0';
 
-    // Step 2: Compare the extracted command
+    // Schritt 2: Vergleiche den extrahierten Befehl
     if (strcmp_simple(command, "help") == 0) {
-        uart_writeText("Commands:\n - set <name> <value>\n - get <name>\n - version\n");
+        uart_writeText("Commands:\n - set <name> <value>\n - print <expr>\n - version\n");
     } else if (strcmp_simple(command, "version") == 0) {
         uart_writeText("OhneBS v0.1.0-alpha\n");
     } else if (strcmp_simple(command, "set") == 0) {
         char* name_start = buffer + i + 1;
-
         int j = 0;
         while(name_start[j] != ' ' && name_start[j] != '\0') j++;
         strncpy_simple(var_name, name_start, j + 1);
@@ -253,16 +319,18 @@ void process_command(char *buffer) {
 
         set_variable(var_name, value);
         uart_writeText("OK.\n");
-    } else if (strcmp_simple(command, "get") == 0) {
-        char* name_start = buffer + i + 1;
-        strncpy_simple(var_name, name_start, MAX_VAR_NAME_LENGTH);
-
+    } else if (strcmp_simple(command, "print") == 0) {
+        // Der Rest des Puffers ist der Ausdruck
+        char* expression = buffer + i + 1;
+        
         bool success;
-        int value = get_variable(var_name, &success);
+        int result = evaluate_expression(expression, &success);
 
         if (success) {
-            uart_writeText(simple_itoa(value, number_buffer));
+            uart_writeText(simple_itoa(result, number_buffer));
             uart_writeText("\n");
+        } else {
+            uart_writeText("Error: Invalid expression or variable not found.\n");
         }
     } else {
         uart_writeText("Unknown command: '");

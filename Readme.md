@@ -1,4 +1,4 @@
-# RPi400-OS: A Bare-Metal Learning Operating System
+# OhneBS: A Bare-Metal Learning Operating System
 
 A small, 64-bit operating system for the Raspberry Pi 400, written from scratch in C and AArch64 Assembly. This project is a hands-on journey to explore the fundamental concepts of operating system architecture and low-level hardware programming.
 

@@ -31,11 +31,15 @@ int strcmp_simple(const char *s1, const char *s2) {
  */
 void process_command(char *buffer) {
     if (strcmp_simple(buffer, "help") == 0) {
-        uart_writeText("Dies ist eine Hilfe-Nachricht.\n");
-        uart_writeText("Verfuegbare Befehle:\n");
-        uart_writeText(" - help: Zeigt diese Nachricht an\n");
+        uart_writeText("This is a help message.\n");
+        uart_writeText("Available commands:\n");
+        uart_writeText(" - help: shows this message\n");
+        uart_writeText(" - version: shows the current version\n");
+    }else if(strcmp_simple(buffer, "version") == 0){
+        uart_writeText("You are running version: v0.1.0-alpha")
+
     } else {
-        uart_writeText("Unbekannter Befehl: '");
+        uart_writeText("unkown command: '");
         uart_writeText(buffer);
         uart_writeText("'\n");
     }

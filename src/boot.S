@@ -25,7 +25,7 @@ _start:
     cbnz    w2, 3b               // Loop if non-zero
 
     // Jump to our main() routine in C (make sure it doesn't return)
-4:  bl      main
+4:  bl      kernel_main
     // In case it does return, halt the master core too
     b       1b
 

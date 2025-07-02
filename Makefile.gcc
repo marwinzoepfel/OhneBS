@@ -20,7 +20,7 @@ VPATH = $(SRCDIR)
 
 # Liste aller Objektdateien, die wir erstellen wollen.
 # $(addprefix ...) fügt 'build/' vor jeden Dateinamen.
-OBJS = $(addprefix $(BUILDDIR)/, boot.o kernel.o gpio.o uart.o string_utils.o shell.o)
+OBJS = $(addprefix $(BUILDDIR)/, boot.o kernel.o gpio.o uart.o string_utils.o shell.o fb.o mb.o console.o)
 
 # Name der finalen Kernel-Datei
 TARGET = kernel8

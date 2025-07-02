@@ -3,9 +3,13 @@
 // ##################################
 // ## Includes
 // ##################################
+// Die uart.h ist hier nicht mehr direkt für die Ausgabe nötig,
+// da die console.h diese Funktionalität umschließt.
+// Wir brauchen aber uart.h weiterhin für uart_read_byte!
+#include "uart.h"          // Behalten, da wir von UART lesen
 #include "shell.h"
 #include "string_utils.h"
-#include "uart.h"
+#include "console.h"       // NEU: console.h für die vereinheitlichte Ausgabe
 
 // ##################################
 // ## Private Datenstrukturen und globale Variablen
@@ -29,7 +33,7 @@ static unsigned int variable_count = 0;
 // ##################################
 // ## Private Funktionsprototypen (nur für diese Datei sichtbar)
 // ##################################
-static void process_command(char *buffer); // NEU: 'static', da jetzt intern
+static void process_command(char *buffer);
 static NamedVariable* find_variable(const char* name);
 static void set_variable(const char* name, int value);
 static int get_variable(const char* name, bool* success);
@@ -44,38 +48,36 @@ static int evaluate_expression(const char* expr, bool* success);
 void shell_init() {
     input_buffer_pos = 0;
     // Der Prompt wird jetzt hier initialisiert und in shell_update aufgerufen
+    // (Oder direkt nach console_init() in kernel_main, wie vorgeschlagen)
 }
 
 void shell_update() {
     unsigned char byte;
     // Versuche, ein Byte von der UART zu lesen
-    if (uart_read_byte(&byte)) {
+    if (uart_read_byte(&byte)) { // WICHTIG: Hier weiterhin uart_read_byte() nutzen, da es der INPUT ist
         // Enter wurde gedrückt
         if (byte == '\r') {
-            uart_writeText("\n");
+            console_puts("\n"); // Ausgabe über die Konsole (geht an UART und FB)
             input_buffer[input_buffer_pos] = '\0';
 
             if (input_buffer_pos > 0) {
-                // shell_update ruft jetzt den Experten process_command auf
                 process_command(input_buffer);
             }
             input_buffer_pos = 0;
-            uart_writeText("> "); // Neuen Prompt anzeigen
+            console_puts("> "); // Ausgabe über die Konsole
         }
         // Backspace
         else if ((byte == 0x08 || byte == 0x7F) && input_buffer_pos > 0) {
             input_buffer_pos--;
-            uart_writeText("\b \b");
+            console_puts("\b \b"); // Ausgabe über die Konsole (Backspace, Leerzeichen, Backspace)
         }
         // Normales, druckbares Zeichen
         else if (byte >= ' ' && byte <= '~' && input_buffer_pos < (INPUT_BUFFER_SIZE - 1)) {
             input_buffer[input_buffer_pos++] = byte;
-            uart_writeByteBlocking(byte); // Echo
+            console_putc(byte); // Echo des Zeichens über die Konsole
         }
     }
 }
-
-
 
 // ##################################
 // ## Implementierung der privaten Funktionen
@@ -101,7 +103,7 @@ static void set_variable(const char* name, int value) {
             variable_storage[variable_count].value = value;
             variable_count++;
         } else {
-            uart_writeText("Error: Maximum number of variables reached!\n");
+            console_puts("Error: Maximum number of variables reached!\n"); // Ausgabe über die Konsole
         }
     }
 }
@@ -162,13 +164,13 @@ static int evaluate_expression(const char* expr, bool* success) {
 
 
 // ##################################
-// ## Implementierung der öffentlichen Funktion (aus shell.h)
+// ## Implementierung der privaten Funktionen (früher öffentlich aus shell.h)
 // ##################################
 
 static void process_command(char *buffer) {
     char command[10];
     char var_name[MAX_VAR_NAME_LENGTH];
-    char number_buffer[12];
+    // char number_buffer[12]; // Nicht mehr direkt benötigt, da console_putint() das übernimmt
 
     int i = 0;
     while(buffer[i] != ' ' && buffer[i] != '\0') {
@@ -178,9 +180,9 @@ static void process_command(char *buffer) {
     command[i] = '\0';
 
     if (strcmp_simple(command, "help") == 0) {
-        uart_writeText("Commands:\n - set <name> <value>\n - print <expr>\n - version\n");
+        console_puts("Commands:\n - set <name> <value>\n - print <expr>\n - version\n"); // Ausgabe über die Konsole
     } else if (strcmp_simple(command, "version") == 0) {
-        uart_writeText("OhneBS v0.1.0-alpha\n");
+        console_puts("OhneBS v0.1.0-alpha\n"); // Ausgabe über die Konsole
     } else if (strcmp_simple(command, "set") == 0) {
         char* name_start = buffer + i + 1;
         int j = 0;
@@ -189,20 +191,20 @@ static void process_command(char *buffer) {
         char* value_start = name_start + j + 1;
         int value = simple_atoi(value_start);
         set_variable(var_name, value);
-        uart_writeText("OK.\n");
+        console_puts("OK.\n"); // Ausgabe über die Konsole
     } else if (strcmp_simple(command, "print") == 0) {
         char* expression = buffer + i + 1;
         bool success;
         int result = evaluate_expression(expression, &success);
         if (success) {
-            uart_writeText(simple_itoa(result, number_buffer));
-            uart_writeText("\n");
+            console_putint(result); // NEU: Nutzt console_putint()
+            console_puts("\n");     // Ausgabe über die Konsole
         } else {
-            uart_writeText("Error: Invalid expression or variable not found.\n");
+            console_puts("Error: Invalid expression or variable not found.\n"); // Ausgabe über die Konsole
         }
     } else {
-        uart_writeText("Unknown command: '");
-        uart_writeText(buffer);
-        uart_writeText("'\n");
+        console_puts("Unknown command: '"); // Ausgabe über die Konsole
+        console_puts(buffer);               // Ausgabe über die Konsole
+        console_puts("'\n");               // Ausgabe über die Konsole
     }
 }

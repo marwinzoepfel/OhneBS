@@ -121,3 +121,37 @@ void strncpy_simple(char *dest, const char *src, unsigned int n) {
     }
     *dest = '\0';
 }
+
+// Implementierung für simple_uint_to_hex_string
+char* simple_uint_to_hex_string(unsigned int value, char* buffer) {
+    char hex_digits[] = "0123456789ABCDEF";
+    int i = 0;
+
+    // Behandle den Fall 0 speziell
+    if (value == 0) {
+        buffer[i++] = '0';
+        buffer[i] = '\0';
+        return buffer;
+    }
+
+    // Finde die Länge des Hex-Strings
+    unsigned int temp_val = value;
+    int len = 0;
+    while (temp_val > 0) {
+        temp_val /= 16;
+        len++;
+    }
+
+    // Füge den Null-Terminator hinzu
+    buffer[len] = '\0';
+    i = len - 1;
+
+    // Konvertiere die Ziffern von rechts nach links
+    while (value > 0) {
+        buffer[i--] = hex_digits[value % 16];
+        value /= 16;
+    }
+
+    return buffer;
+}
+

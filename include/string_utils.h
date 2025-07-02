@@ -20,4 +20,8 @@ int strcmp_simple(const char *s1, const char *s2);
 int strncmp_simple(const char *s1, const char *s2, unsigned int n);
 void strncpy_simple(char *dest, const char *src, unsigned int n);
 
+
+// Konvertiert eine vorzeichenlose Ganzzahl in einen Hexadezimal-String
+char* simple_uint_to_hex_string(unsigned int value, char* buffer);
+
 #endif // STRING_UTILS_H
